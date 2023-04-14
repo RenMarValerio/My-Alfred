@@ -15,19 +15,19 @@ browser.get('https://trello.com/invite/b/9w27gdX4/ATTI63a7ff9122113db35945b5b211
 # faça login na sua conta
 
 # Solicitação dos usuários para que insiram os detalhes da tarefa
-nome_tarefa = input("Insira o nome da tarefa: ")
-prazofinal_str = input("Insira a data final (dd/mm/aaaa): ")
-prazofinal_data = datetime.strptime(prazofinal_str, '%D-%m-%a')
-maximo_prazofinal = int(input("Insira o máximo de dias até o prazo (em dias)"))
+task_name = input("Insira o nome da tarefa: ")
+deadline_str = input("Insira o prazo final (yyyy-mm-dd): ")
+deadline_date = datetime.strptime(deadline_str, '%Y-%m-%d')
+max_deadline = int(input("Insira o máximo de dias (in days): "))
 
 # Cria uma nova tarefa
 # Use os recursos de automação da Web do Selenium para preencher o formulário de detalhes da tarefa
 
 # Calcula o numero de dias até o prazo final e manda mensagem no Whatsapp
-dias_prazofinal = (prazofinal_data - datetime.now()).days
+dias_prazofinal = (deadline_date - datetime.now()).days
 
 # Se faltar um dia para o prazo, envia uma mensagem
 if dias_prazofinal == 1:
     client = Client(account_sid, auth_token)
-    message_body = f'Lembra do {nome_tarefa}? o prazo é até AMANHÃ!!!'
+    message_body = f'Lembra do {task_name}? o prazo é até AMANHÃ!!!'
     message = client.messages.create(body=message_body, from_=twilio_phone_number, to=your_phone_number)
