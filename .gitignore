@@ -1,18 +1,33 @@
-# Build and Release Folders
-bin-debug/
-bin-release/
-[Oo]bj/
-[Bb]in/
+from selenium import webdriver
+from datetime import datetime, timedelta
+from twilio.rest import Client
 
-# Other files and folders
-.settings/
+#Configuração da conta Twilio
+account_sid = 'AC667a128e3d0026c3ba1f900f1dbc9b1c'
+auth_token = '[AuthToken]'
+client = Client(account_sid, auth_token)
+twilio_phone_number = 'whatsapp:+14155238886', # Número que vai receber a mensagem
+your_phone_number = 'whatsapp: +5541984070888' # Meu número de telefone
 
-# Executables
-*.swf
-*.air
-*.ipa
-*.apk
+# Abre um navegador do Chrome e faz login no sistema de gerenciamento de tarefas
+browser = webdriver.Chrome()
+browser.get('https://trello.com/invite/b/9w27gdX4/ATTI63a7ff9122113db35945b5b211daf867A898DBDF/gestao-de-projetos')
+# faça login na sua conta
 
-# Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
-# should NOT be excluded as they contain compiler settings and other important
-# information for Eclipse / Flash Builder.
+# Solicitação dos usuários para que insiram os detalhes da tarefa
+nome_tarefa = input("Insira o nome da tarefa: ")
+prazofinal_str = input("Insira a data final (dd/mm/aaaa): ")
+prazofinal_data = datetime.strptime(prazofinal_str, '%D-%m-%a')
+maximo_prazofinal = int(input("Insira o máximo de dias até o prazo (em dias)"))
+
+# Cria uma nova tarefa
+# Use os recursos de automação da Web do Selenium para preencher o formulário de detalhes da tarefa
+
+# Calcula o numero de dias até o prazo final e manda mensagem no Whatsapp
+dias_prazofinal = (prazofinal_data - datetime.now()).days
+
+# Se faltar um dia para o prazo, envia uma mensagem
+if dias_prazofinal == 1:
+    client = Client(account_sid, auth_token)
+    message_body = f'Lembra do {nome_tarefa}? o prazo é até AMANHÃ!!!'
+    message = client.messages.create(body=message_body, from_=twilio_phone_number, to=your_phone_number)
