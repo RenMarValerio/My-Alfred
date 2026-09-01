@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EstadoLead {
+  EM_TRIAGEM
+  TRANSFERIDO
+  ABANDONADO
+}
+
+enum EtapaTriagem {
+  AGUARDANDO_SEGMENTO
+  AGUARDANDO_SEGMENTO_LIVRE
+  AGUARDANDO_VOLUME
+  AGUARDANDO_NOME
+}
+
+enum TipoTimeout {
+  LEMBRETE
+  ABANDONO
+}
+
+enum DirecaoMensagem {
+  ENTRADA
+  SAIDA
+}
+
+/// Opções do menu numerado da pergunta de segmento (Estado 2). Renderizadas em runtime —
+/// adicionar/remover uma linha aqui muda o menu exibido e a validação ao mesmo tempo.
+model OpcaoSegmento {
+  id                Int      @id @default(autoincrement())
+  ordem             Int      @unique
+  codigo            String   @unique
+  rotulo            String
+  permiteTextoLivre Boolean  @default(false)
+  ativo             Boolean  @default(true)
+
+  roteamentos Roteamento[]
+  leads       Lead[]
+
+  @@map("opcoes_segmento")
+}
+
+/// Opções do menu numerado da pergunta de volume (Estado 3).
+model OpcaoVolume {
+  id     Int     @id @default(autoincrement())
+  ordem  Int     @unique
+  codigo String  @unique
+  rotulo String
+  ativo  Boolean @default(true)
+
+  roteamentos Roteamento[]
+  leads       Lead[]
+
+  @@map("opcoes_volume")
+}
+
+model Vendedor {
+  id               Int     @id @default(autoincrement())
+  nome             String
+  telefoneWhatsapp String  @unique @map("telefone_whatsapp")
+  ativo            Boolean @default(true)
+
+  roteamentos       Roteamento[]
+  leadsTransferidos Lead[]              @relation("leadVendedor")
+  configuracoes     ConfiguracaoGeral[] @relation("vendedorPadrao")
+
+  @@map("vendedores")
+}
+
+/// Tabela de roteamento (segmento × volume → vendedor). Combinação única — cadastrar ou
+/// trocar o vendedor de uma combinação é só uma linha aqui, nunca alteração de código.
+model Roteamento {
+  id         Int @id @default(autoincrement())
+  segmentoId Int @map("segmento_id")
+  volumeId   Int @map("volume_id")
+  vendedorId Int @map("vendedor_id")
+
+  segmento OpcaoSegmento @relation(fields: [segmentoId], references: [id])
+  volume   OpcaoVolume   @relation(fields: [volumeId], references: [id])
+  vendedor Vendedor      @relation(fields: [vendedorId], references: [id])
+
+  @@unique([segmentoId, volumeId])
+  @@map("roteamento")
+}
+
+/// Configuração geral — singleton (id fixo = 1).
+model ConfiguracaoGeral {
+  id                 Int      @id @default(1)
+  vendedorPadraoId   Int      @map("vendedor_padrao_id")
+  timeoutLembreteMin Int      @default(15) @map("timeout_lembrete_min")
+  timeoutAbandonoH   Int      @default(24) @map("timeout_abandono_h")
+  atualizadoEm       DateTime @updatedAt @map("atualizado_em")
+
+  vendedorPadrao Vendedor @relation("vendedorPadrao", fields: [vendedorPadraoId], references: [id])
+
+  @@map("configuracao_geral")
+}
+
+/// Textos das mensagens enviadas pela Karen — editáveis sem deploy de código.
+/// Chaves usadas: boas_vindas, pergunta_segmento_cabecalho, pergunta_segmento_livre,
+/// pergunta_volume_cabecalho, pergunta_nome, nao_entendi, lembrete, transferencia_lead
+/// (placeholder {{vendedor}}), transferencia_lead_personalizada (placeholders {{nome}},
+/// {{vendedor}}), notificacao_vendedor (placeholders {{nome}}, {{telefone}}, {{segmento}},
+/// {{volume}}, {{origem}}, {{data_hora}}).
+model TextoMensagem {
+  chave        String   @id
+  conteudo     String
+  descricao    String?
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  @@map("textos_mensagem")
+}
+
+/// Uma linha por ciclo de triagem (não por telefone) — um telefone pode ter vários ciclos ao
+/// longo do tempo (ver leadAnteriorId). O estado da máquina vive inteiramente nesta linha, para
+/// sobreviver a restart do processo sem depender de nenhum timer em memória.
+model Lead {
+  id               Int             @id @default(autoincrement())
+  telefone         String
+  nomeWhatsapp     String?         @map("nome_whatsapp")
+  nomeContato      String?         @map("nome_contato")
+  origem           String?
+
+  estado           EstadoLead      @default(EM_TRIAGEM)
+  etapaAtual       EtapaTriagem?   @map("etapa_atual")
+
+  segmentoId       Int?            @map("segmento_id")
+  segmentoLivre    String?         @map("segmento_livre")
+  volumeId         Int?            @map("volume_id")
+  vendedorId       Int?            @map("vendedor_id")
+
+  tentativasInvalidas Int          @default(0) @map("tentativas_invalidas")
+
+  proximoTimeoutEm   DateTime?     @map("proximo_timeout_em")
+  proximoTimeoutTipo TipoTimeout?  @map("proximo_timeout_tipo")
+
+  leadAnteriorId Int? @map("lead_anterior_id")
+
+  criadoEm      DateTime  @default(now()) @map("criado_em")
+  atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
+  transferidoEm DateTime? @map("transferido_em")
+  abandonadoEm  DateTime? @map("abandonado_em")
+
+  segmento OpcaoSegmento? @relation(fields: [segmentoId], references: [id])
+  volume   OpcaoVolume?   @relation(fields: [volumeId], references: [id])
+  vendedor Vendedor?      @relation("leadVendedor", fields: [vendedorId], references: [id])
+
+  mensagens Mensagem[]
+
+  @@index([telefone])
+  @@index([estado, proximoTimeoutEm])
+  @@map("leads")
+}
+
+/// Histórico de mensagens trocadas — tabela própria (não JSON em Lead) para permitir escrita
+/// concorrente sem reler/regravar a linha inteira, e consultas para dashboard futuro.
+model Mensagem {
+  id                   Int             @id @default(autoincrement())
+  leadId               Int             @map("lead_id")
+  direcao              DirecaoMensagem
+  telefoneRemetente    String          @map("telefone_remetente")
+  telefoneDestinatario String          @map("telefone_destinatario")
+  texto                String
+  tipo                 String?
+  criadoEm             DateTime        @default(now()) @map("criado_em")
+
+  lead Lead @relation(fields: [leadId], references: [id])
+
+  @@index([leadId, criadoEm])
+  @@map("mensagens")
+}
+
+/// Allowlist de números que já são clientes em atendimento — nunca recebem automação.
+model ClienteExistente {
+  telefone     String   @id
+  origemImport String?  @map("origem_import")
+  criadoEm     DateTime @default(now()) @map("criado_em")
+
+  @@map("clientes_existentes")
+}
